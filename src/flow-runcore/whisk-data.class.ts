@@ -17,7 +17,10 @@
  * (C) 2025 David Jakubowski - levelonelab.com
  */
 
+import {QueueObject} from "async";
 
+var async = require("async");
+const { queue } = async;
 import { Dealer } from "zeromq";
 import { logger } from "../helpers/logger.class.js";
 
@@ -29,8 +32,9 @@ import { logger } from "../helpers/logger.class.js";
 export class WhiskZMQDataAdapter {
 
     private receiver: Dealer; // ZeroMQ Dealer socket for receiving messages
-    private pendingRequests: { [token: string]: { resolve: (msg: any) => void, reject: (err: Error) => void } }; // Dictionary to track pending requests with their tokens
+    private pendingRequests: { [token: string]: { resolve: (msg: Buffer[]) => void, reject: (err: Error) => void } }; // Dictionary to track pending requests with their tokens
 
+    private sendQueue : QueueObject<Buffer[]> = null
 
     constructor(private addressableUri: string) {
         this.pendingRequests = {};
@@ -43,11 +47,12 @@ export class WhiskZMQDataAdapter {
      */
     private async mainLoop() {
         this.receiver = new Dealer();
+        this.sendQueue = queue(async (msg: Buffer[]) => await this.receiver.send(msg), 1);
         await this.receiver.connect(this.addressableUri);
-        for await (const [_token, msg] of this.receiver) {
-            const token = _token.toString(); // Convert the token to string
+        for await (const msg of this.receiver) {
+            const token = msg[0].toString(); // Convert the token to string
             if (this.pendingRequests[token]) {
-                this.pendingRequests[token].resolve(msg); // Resolve the corresponding promise with the message
+                this.pendingRequests[token].resolve(msg.slice(1)); // Resolve the corresponding promise with the message
                 delete this.pendingRequests[token]; // Remove the request from pending list
             } else {
                 logger.warn(`Received message with unknown token: ${token}`); // Log a warning for unknown tokens
@@ -61,11 +66,10 @@ export class WhiskZMQDataAdapter {
      * @param msg - The message to send.
      * @returns A promise that resolves with the received message or rejects if there's an error.
      */
-    public async sendAndReceive(token: string, msg: Buffer[]): Promise<any> {
+    public async sendAndReceive(token: Buffer, msg: Buffer[]): Promise<Buffer[]> {
         return new Promise((resolve, reject) => {
-            this.pendingRequests[token] = { resolve, reject }; // Store the resolve and reject functions for the token
-            // TODO, use a zmq queue.
-            this.receiver.send([token, ... msg]); // Send the message with the token
+            this.pendingRequests[token.toString()] = { resolve, reject }; // Store the resolve and reject functions for the token
+            this.sendQueue.push([token, ... msg]); // Send the message with the token
         });
     }
 

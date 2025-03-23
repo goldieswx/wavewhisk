@@ -3,8 +3,12 @@ import { randomBytes } from 'crypto';
 class TokenGenerator {
     private static readonly TOKEN_LENGTH = 8; // 64 bits / 8 = 8 bytes
 
-    public generateToken(): string {
+    public generateStringToken(): string {
         return randomBytes(TokenGenerator.TOKEN_LENGTH).toString('hex');
+    }
+
+    public generateToken(): Buffer {
+        return randomBytes(TokenGenerator.TOKEN_LENGTH);
     }
 }
 

@@ -18,70 +18,33 @@
  * (C) 2025 David Jakubowski - levelonelab.com
  */
 import {CAN_SEND_NEXT, CURRENT_EVENT,OutletConduit} from "../types/flow.types";
-import {WhiskConnectedNode} from "./whisk-connected-node.class";
+import {PinAttachment, WhiskConnectedNode} from "./whisk-connected-node.class";
 
 
 export class WhiskConduit {
 
-    private terminateConnection: boolean = false;
+    private terminateToken: PinAttachment = null;
 
     constructor( private flowConnection: OutletConduit
                  ,private whiskConnectedNodes: {[nodeId: string]: WhiskConnectedNode}) {
-
     }
 
     /**
      * Processes connections within the flow by sending messages and logging responses.
      */
-    async processConnections() {
+    public attachConduit() {
 
         const fromConnection = this.whiskConnectedNodes[this.flowConnection.from];
         const toConnection = this.whiskConnectedNodes[this.flowConnection.to];
 
-        while (!this.terminateConnection) {
+        this.terminateToken = fromConnection.onOutputPin(this.flowConnection.from, async (msg: Buffer[]) => {
+            await toConnection.pushToInputPin(this.flowConnection.to, msg);
+        });
 
-
-            try {
-
-                await fromConnection.
-                /* // Send message on `.from` connection
-                const fromConnection = this.whiskConnections[this.flowConnection.from];
-                const fromPromise = fromConnection.dataAdapter.sendAndReceive(tokenGenerator.generateToken(), [CAN_SEND_NEXT as any]);
-
-                await this.
-
-                // Send message on `.to` connection
-                const toConnection = this.whiskConnections[this.flowConnection.to];
-                const toPromise = toConnection.dataAdapter.sendAndReceive(tokenGenerator.generateToken(), [CURRENT_EVENT as any]);
-
-                // Wait for both messages to be processed and received
-                const [fromResponse, toResponse] = await Promise.all([fromPromise, toPromise]);
-
-                // Log when both responses are received
-                console.log(`Responses received: From connection ${this.flowConnection.id}`);
-                console.log(`From response:`, fromResponse);
-                console.log(`To response:`, toResponse);*/
-
-
-
-           }
-           catch  (error) {
-            console.error('Error processing connection:', error);
-           }
-        }
 
     }
 
-    async onInput(value: Buffer[]) {
-        // create an INLET and OUTLET class and the conduit that mixes them together.
-    }
 
-    /**
-     * Terminates an ongoing process or connection by setting the appropriate flag.
-     * @return {void} This method does not return a value.
-     */
-     public terminate() {
-        this.terminateConnection = true;
-     }
+
 
 }

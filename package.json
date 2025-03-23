@@ -11,6 +11,7 @@
   "license": "ISC",
   "description": "",
   "devDependencies": {
+    "@types/async": "^3.2.24",
     "@types/express": "^5.0.1",
     "@types/lodash": "^4.17.16",
     "@types/node": "^22.13.11",
@@ -19,6 +20,8 @@
     "typescript": "^5.8.2"
   },
   "dependencies": {
+    "async": "^3.2.6",
+    "async-es": "^3.2.6",
     "cors": "^2.8.5",
     "express": "^4.21.2",
     "rxjs": "^7.8.2",

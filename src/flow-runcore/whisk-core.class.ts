@@ -21,7 +21,6 @@
 import {INIT_TIMEOUT_DELAY, WhiskNodeCircuit} from "../types/flow.types.js";
 import {WhiskConnection, WhiskConnectionRepository} from "./whisk-repository.class.js";
 import {logger} from "../helpers/logger.class.js";
-import {tokenGenerator} from "../helpers/token-generator.class";
 import {WhiskConnectedNode} from "./whisk-connected-node.class";
 import lodash from "lodash";
 import {WhiskConduit} from "./whisk-conduit.class";
@@ -62,8 +61,12 @@ export class WhiskCore {
          flow.connections.forEach(connection => {
                   const conduit = new WhiskConduit(connection, this.connectedNodes);
                   // push connections asyncronously.
-                  conduit.processConnections().then(() => {});
+                  conduit.attachConduit();
                   this.conduits.push(conduit);
+         })
+
+         forOwn(this.connectedNodes, (node) => {
+             node.setAllConnected();
          })
 
 
@@ -81,7 +84,7 @@ export class WhiskCore {
      * @param {WhiskNodeCircuit} flow Represents a flow circuit containing nodes. Each node has an ID and a corresponding flow element.
      * @return {Array} An array of promises, each containing the URI of the connection and its response data.
      */
-     buildFlowInitialize(matchingConnections:  { [p: string]: WhiskConnection }, flow: WhiskNodeCircuit) {
+     buildFlowInitialize(matchingConnections:  { [p: string]: WhiskConnection }, flow: WhiskNodeCircuit): Array<any> {
          // Prepare an array of promises to await all responses from connections
          const responsePromises : Promise<any>[] = [];
 
