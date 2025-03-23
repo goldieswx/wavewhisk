@@ -35,6 +35,8 @@ var __asyncValues = (this && this.__asyncValues) || function (o) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.WhiskZMQDataAdapter = void 0;
+var async = require("async");
+const { queue } = async;
 const zeromq_1 = require("zeromq");
 const logger_class_js_1 = require("../helpers/logger.class.js");
 /**
@@ -45,6 +47,7 @@ const logger_class_js_1 = require("../helpers/logger.class.js");
 class WhiskZMQDataAdapter {
     constructor(addressableUri) {
         this.addressableUri = addressableUri;
+        this.sendQueue = null;
         this.pendingRequests = {};
         this.mainLoop().then(() => { }); // Start the main loop and ignore its promise result
     }
@@ -55,16 +58,17 @@ class WhiskZMQDataAdapter {
     mainLoop() {
         return __awaiter(this, void 0, void 0, function* () {
             var _a, e_1, _b, _c;
-            this.receiver = new zeromq_1.Dealer();
+            this.receiver = new zeromq_1.Dealer({ routingId: "whisk-data-adapter", connectTimeout: 10000 });
+            this.sendQueue = queue((msg) => __awaiter(this, void 0, void 0, function* () { return yield this.receiver.send(msg); }), 1);
             yield this.receiver.connect(this.addressableUri);
             try {
                 for (var _d = true, _e = __asyncValues(this.receiver), _f; _f = yield _e.next(), _a = _f.done, !_a; _d = true) {
                     _c = _f.value;
                     _d = false;
-                    const [_token, msg] = _c;
-                    const token = _token.toString(); // Convert the token to string
+                    const msg = _c;
+                    const token = msg[0].toString(); // Convert the token to string
                     if (this.pendingRequests[token]) {
-                        this.pendingRequests[token].resolve(msg); // Resolve the corresponding promise with the message
+                        this.pendingRequests[token].resolve(msg.slice(1)); // Resolve the corresponding promise with the message
                         delete this.pendingRequests[token]; // Remove the request from pending list
                     }
                     else {
@@ -90,8 +94,8 @@ class WhiskZMQDataAdapter {
     sendAndReceive(token, msg) {
         return __awaiter(this, void 0, void 0, function* () {
             return new Promise((resolve, reject) => {
-                this.pendingRequests[token] = { resolve, reject }; // Store the resolve and reject functions for the token
-                this.receiver.send([token, msg]); // Send the message with the token
+                this.pendingRequests[token.toString()] = { resolve, reject }; // Store the resolve and reject functions for the token
+                this.sendQueue.push([token, ...msg]); // Send the message with the token
             });
         });
     }

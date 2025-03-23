@@ -141,7 +141,9 @@ core.build({
                 displayName: "Default Outlet"}]
         }],
     connections: [{ from: "node/1-default", to: "node/2-default", id:"-"}]
-})
+});
+
+
 
 
 

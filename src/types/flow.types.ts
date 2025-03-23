@@ -18,10 +18,11 @@
  */
 
 
-export const INIT_FLOW_ELEMENT = 0x8123;
-export const CURRENT_EVENT = 0x8124;
-export const CAN_SEND_NEXT = 0x8125;
-
+export const INIT_FLOW_ELEMENT = 0x4026;
+export const CURRENT_EVENT = 0x8200;
+export const CAN_SEND_NEXT = 0x8001;
+export const ERROR_EVENT = 0xFFFF;
+export const DESTROY_EVENT = 0x82FF;
 export const INIT_TIMEOUT_DELAY = parseInt(process.env['WW_INIT_TIMEOUT_DELAY'] || '15000');
 
 /*
@@ -67,3 +68,16 @@ export interface WhiskNodeCircuit {
      connections: OutletConduit[];
 }
 
+
+export interface WhiskNodeCircuitInitialization  {
+
+    options: any;
+    flowElement: {
+        repositoryElementId: string;
+    }
+    extraInfo: {
+        jobId: string;
+        nodeId: string;
+    }
+
+}

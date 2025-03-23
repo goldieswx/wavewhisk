@@ -46,7 +46,7 @@ export class WhiskZMQDataAdapter {
      * resolving or rejecting promises based on the received tokens.
      */
     private async mainLoop() {
-        this.receiver = new Dealer();
+        this.receiver = new Dealer({ routingId: "whisk-data-adapter", connectTimeout: 10000});
         this.sendQueue = queue(async (msg: Buffer[]) => await this.receiver.send(msg), 1);
         await this.receiver.connect(this.addressableUri);
         for await (const msg of this.receiver) {
