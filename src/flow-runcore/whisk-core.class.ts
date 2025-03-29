@@ -91,7 +91,7 @@ const buildCore = async () => {
                 options: {
                     "dataKey": "field1",
                     "dataIncrement": 100,
-                    "pushIntervalMs": 10,
+                    "pushIntervalMs": 2500,
                     "debug": {
                         "modCheck": 1000
                     }

@@ -22,6 +22,9 @@ exports.WhiskConnectionRepository = exports.WhiskConnection = void 0;
 const rxjs_1 = require("rxjs");
 const whisk_data_class_js_1 = require("./whisk-data.class.js");
 const logger_class_js_1 = require("../helpers/logger.class.js");
+const flow_types_js_1 = require("../types/flow.types.js");
+const token_generator_class_1 = require("../helpers/token-generator.class");
+const whisk_serializer_class_1 = require("./whisk-serializer.class");
 /**
  * Manages a connection to a whisk service and its health status.
  */
@@ -29,8 +32,7 @@ class WhiskConnection {
     constructor(addressableUri, registeredClasses = []) {
         this.addressableUri = addressableUri;
         this.registeredClasses = registeredClasses;
-        this.health = null;
-        this.lastUpdate = null;
+        this.lastHeartBeat = null;
         this.dataAdapter = new whisk_data_class_js_1.WhiskZMQDataAdapter(this.addressableUri);
         logger_class_js_1.logger.info(`WhiskerConnection created for ${addressableUri}`);
     }
@@ -40,6 +42,18 @@ class WhiskConnection {
     destroy() {
         logger_class_js_1.logger.info(`WhiskerConnection destroyed for ${this.addressableUri}`);
         this.dataAdapter.destroy();
+    }
+    getLastHeartbeatDelay() {
+        if (this.lastHeartBeat === null) {
+            return null;
+        }
+        return (new Date().getTime() - (this.lastHeartBeat).getTime());
+    }
+    sendHeartBeat() {
+        // [identity, token,  _nodeRef, inputId, header, data ]
+        const notUsed = Buffer.alloc(0);
+        this.dataAdapter
+            .sendAndReceive(token_generator_class_1.tokenGenerator.generateToken(), [notUsed, notUsed, whisk_serializer_class_1.whishSerializer.createShortHeader(flow_types_js_1.HEARTBEAT_EVENT, whisk_serializer_class_1.SERIALZER_MSGPACK)]).then(() => this.lastHeartBeat = new Date());
     }
 }
 exports.WhiskConnection = WhiskConnection;
@@ -54,12 +68,23 @@ class WhiskConnectionRepository {
         this.$whiskerConnection = this.$_whiskerConnection.asObservable();
         this.subs = new rxjs_1.Subscription();
         this.subs = this.$_whiskerConnection.subscribe(connection => {
-            const allWhiskers = this.$_whiskerConnections.value || [];
-            if (!allWhiskers.find(whisk => whisk.addressableUri === connection.addressableUri)) {
+            const allWhisks = this.$_whiskerConnections.value || [];
+            if (!allWhisks.find(whickConnection => whickConnection.addressableUri === connection.addressableUri)) {
                 logger_class_js_1.logger.info(`WhiskerConnection registered for ${connection.addressableUri}`);
-                allWhiskers.push(connection);
-                this.$_whiskerConnections.next(allWhiskers);
+                allWhisks.push(connection);
+                this.$_whiskerConnections.next(allWhisks);
             }
+        });
+        setInterval(() => this.sendHeartBeatEvent(), 2000);
+    }
+    sendHeartBeatEvent() {
+        const allConnections = this.$_whiskerConnections.value;
+        allConnections.forEach((connection) => {
+            const lastHeartbeatDelay = connection.getLastHeartbeatDelay();
+            if ((lastHeartbeatDelay !== null) && (lastHeartbeatDelay >= flow_types_js_1.HEARTBEAT_MAX_DELAY_MS)) {
+                logger_class_js_1.logger.error(`HeartBeat overflow. ${connection.addressableUri}`);
+            }
+            connection.sendHeartBeat();
         });
     }
     /**
@@ -67,14 +92,14 @@ class WhiskConnectionRepository {
      * @param nodeCircuit
      */
     findMatchingWhiskConnections(nodeCircuit) {
-        const allWhiskers = this.$_whiskerConnections.value;
-        if (!allWhiskers)
+        const allWhisks = this.$_whiskerConnections.value;
+        if (!allWhisks)
             throw new Error("No whisk connections found");
         // Find matching connections based on node names
         const matches = {};
         for (const node of nodeCircuit.nodes) {
             if (node.flowElement && node.flowElement.name) {
-                const match = allWhiskers.find(whisk => whisk.registeredClasses.includes(node.flowElement.id));
+                const match = allWhisks.find(whisk => whisk.registeredClasses.includes(node.flowElement.id));
                 if (match)
                     matches[node.id] = match;
             }

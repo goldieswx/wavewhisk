@@ -23,7 +23,13 @@ export const CURRENT_EVENT = 0x8200;
 export const CAN_SEND_NEXT = 0x8001;
 export const ERROR_EVENT = 0xFFFF;
 export const DESTROY_EVENT = 0x82FF;
+export const HEARTBEAT_EVENT = 0x8210;
+export const SCHEDULER_RESTART = 0x8220;
+
 export const INIT_TIMEOUT_DELAY = parseInt(process.env['WW_INIT_TIMEOUT_DELAY'] || '15000');
+export const HEARTBEAT_MAX_DELAY_MS = parseInt(process.env['WW_HEARTBEAT_MAX_DELAY_MS'] || '5000');
+export const HEARTBEAT_ASKRATE_DELAY_MS = parseInt(process.env['HEARTBEAT_ASKRATE_DELAY_MS'] || '2000');
+
 
 /*
 * Flow I/O definition
