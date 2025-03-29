@@ -17,13 +17,14 @@
  *
  * (C) 2025 David Jakubowski - levelonelab.com
  */
-import {CAN_SEND_NEXT, CURRENT_EVENT,OutletConduit} from "../types/flow.types";
-import {PinAttachment, WhiskConnectedNode} from "./whisk-connected-node.class";
+import { OutletConduit} from "../types/flow.types";
+import { PinAttachmentCallback, WhiskConnectedNode} from "./whisk-connected-node.class";
+import {from} from "rxjs";
 
 
 export class WhiskConduit {
 
-    private terminateToken: PinAttachment = null;
+    private detachToken: PinAttachmentCallback = null;
 
     constructor( private flowConnection: OutletConduit
                  ,private whiskConnectedNodes: {[nodeId: string]: WhiskConnectedNode}) {
@@ -34,17 +35,27 @@ export class WhiskConduit {
      */
     public attachConduit() {
 
-        const fromConnection = this.whiskConnectedNodes[this.flowConnection.from];
-        const toConnection = this.whiskConnectedNodes[this.flowConnection.to];
+        const fromConnection = this.whiskConnectedNodes[this.flowConnection.from.nodeId];
+        const toConnection = this.whiskConnectedNodes[this.flowConnection.to.nodeId];
 
-        this.terminateToken = fromConnection.onOutputPin(this.flowConnection.from, async (msg: Buffer[]) => {
-            await toConnection.pushToInputPin(this.flowConnection.to, msg);
+        this.detachToken = fromConnection.onOutputPin(this.flowConnection.from.pin, async (msg: Buffer[]) => {
+            await toConnection.pushToInputPin(this.flowConnection.to.pin, msg);
         });
-
 
     }
 
 
+    public detachConduit() {
+
+        if (this.detachToken) {
+            const fromConnection = this.whiskConnectedNodes[this.flowConnection.from.nodeId];
+            if (fromConnection) {
+                fromConnection.detachPin(this.flowConnection.from.pin, this.detachToken);
+                this.detachToken = null;
+            }
+        }
+
+    }
 
 
 }

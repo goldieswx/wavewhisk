@@ -46,9 +46,15 @@ export class WhiskZMQDataAdapter {
      * resolving or rejecting promises based on the received tokens.
      */
     private async mainLoop() {
-        this.receiver = new Dealer({ routingId: "whisk-data-adapter", connectTimeout: 10000});
-        this.sendQueue = queue(async (msg: Buffer[]) => await this.receiver.send(msg), 1);
+        this.receiver = new Dealer({routingId: "whisk-data-adapter", connectTimeout: 10000});
+
+        this.sendQueue = queue(async (msg: Buffer[], done: any) => {
+            await this.receiver.send(msg);
+            done();
+        }, 1);
+
         await this.receiver.connect(this.addressableUri);
+
         for await (const msg of this.receiver) {
             const token = msg[0].toString(); // Convert the token to string
             if (this.pendingRequests[token]) {
@@ -64,13 +70,22 @@ export class WhiskZMQDataAdapter {
      * Sends a message and returns a promise that will be resolved when a response is received.
      * @param token - Unique identifier for the request.
      * @param msg - The message to send.
+     * @param abortSignal - Promise to abort signal
      * @returns A promise that resolves with the received message or rejects if there's an error.
      */
-    public async sendAndReceive(token: Buffer, msg: Buffer[]): Promise<Buffer[]> {
-        return new Promise((resolve, reject) => {
+    public async sendAndReceive(token: Buffer, msg: Buffer[], abortSignal ?: Promise<void>): Promise<Buffer[]>  {
+        const sendPromise = new Promise<Buffer []>((resolve, reject) => {
             this.pendingRequests[token.toString()] = { resolve, reject }; // Store the resolve and reject functions for the token
-            this.sendQueue.push([token, ... msg]); // Send the message with the token
+            // queue push, can push array of objects, there fore we double the array
+            this.sendQueue.push([[token, ... msg]]); // Send the message with the token
         });
+
+        if (abortSignal) {
+            // abortSignal can only reject.
+            return Promise.race([abortSignal, sendPromise]) as Promise<Buffer[]>;
+        } else {
+            return sendPromise;
+        }
     }
 
     /**

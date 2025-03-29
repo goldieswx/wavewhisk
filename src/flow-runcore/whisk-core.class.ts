@@ -18,87 +18,56 @@
  */
 
 
-import {INIT_TIMEOUT_DELAY, WhiskNodeCircuit} from "../types/flow.types.js";
+
 import {WhiskConnection, WhiskConnectionRepository} from "./whisk-repository.class.js";
-import {logger} from "../helpers/logger.class.js";
-import {WhiskConnectedNode} from "./whisk-connected-node.class";
-import lodash from "lodash";
-import {WhiskConduit} from "./whisk-conduit.class";
-const { forOwn } = lodash;
+import {WhiskNodeCircuitImport} from "../types/flow.types";
+import {WhiskCircuit} from "./whisk-circuit.class";
+import {logger} from "../helpers/logger.class";
 
 
 export class WhiskCore {
 
-
-     private connectedNodes: {[nodeId: string]: WhiskConnectedNode } = {};
-     private conduits : WhiskConduit[] = [];
+     private  circuits: {[circuitId: string] : WhiskCircuit } = {};
 
      constructor(private connections:  WhiskConnectionRepository ) {
      }
 
-     async build(flow: WhiskNodeCircuit) {
+     public async build(importCircuit: WhiskNodeCircuitImport, circuitId: string): Promise<WhiskCircuit> {
 
-         const matchingConnections =  this.connections.findMatchingWhiskConnections(flow);
-         logger.info(matchingConnections);
+            if (!circuitId || !circuitId.length) {
+                throw new Error("CircuitId must be a valid string");
+            }
 
-         /* Node initialization*/
-         const initializeNodes = Promise.all(this.buildFlowInitialize(matchingConnections, flow));
+            if (this.circuits[circuitId]) {
+                throw new Error('CircuitId already exists');
+            }
 
-         const timeout = new Promise((resolve, reject) => {
-             setTimeout(() => { reject(new Error('Operation timed out after 15 seconds')); }, INIT_TIMEOUT_DELAY);
-         });
+            const circuit =   this.circuits[circuitId]  = new WhiskCircuit(this.connections);
 
-         try {
-             // Await all responses and log them once everything is processed
-             const timedResults = await Promise.race([initializeNodes, timeout]);
-             logger.info('All connections have responded:', timedResults);
-         } catch (error) {
-             logger.error('Operation timed out or encountered an error:', error);
-             throw new Error('Timed out waiting for connections to initialize.');
-         }
+             circuit.getOnTerminated().then(() => {
+                 logger.info(`Circuit: ${circuitId} terminated!`);
+                 delete this.circuits[circuitId];
+             })
 
-         /* Node conduit connection */
-         flow.connections.forEach(connection => {
-                  const conduit = new WhiskConduit(connection, this.connectedNodes);
-                  // push connections asyncronously.
-                  conduit.attachConduit();
-                  this.conduits.push(conduit);
-         })
+             try {
+                 await circuit.build(importCircuit);
+             } catch (error: any) {
+                 logger.error(`Failed to build circuit ${error?.message || error}`);
+             }
 
-         forOwn(this.connectedNodes, (node) => {
-             node.setAllConnected();
-         })
-
-
+             return circuit;
      }
 
-    /**
-     * Initializes the flow by sending requests through matching connections.
-     *
-     * This method iterates over a collection of matching connections, sends initialization data
-     * to each connection's data adapter using its options or configurations, and collects the responses as promises.
-     * It logs information about successful responses and errors encountered during the process.
-     *
-     * @param {Object} matchingConnections A dictionary where keys are node IDs (strings) and values are WhiskConnection objects,
-     *                                     representing the connections associated with those nodes.
-     * @param {WhiskNodeCircuit} flow Represents a flow circuit containing nodes. Each node has an ID and a corresponding flow element.
-     * @return {Array} An array of promises, each containing the URI of the connection and its response data.
-     */
-     buildFlowInitialize(matchingConnections:  { [p: string]: WhiskConnection }, flow: WhiskNodeCircuit): Array<any> {
-         // Prepare an array of promises to await all responses from connections
-         const responsePromises : Promise<any>[] = [];
+     public async terminateCircuit(circuitId: string): Promise<void> {
 
-         // Use dictionary comprehension to iterate over the matching connections
+          if (!this.circuits[circuitId]) {
+              throw new Error(`CircuitId ${circuitId} does not exist`);
+          }
 
-        forOwn(matchingConnections,(connection, nodeId) => {
-             const node = flow.nodes.find(node => node.id === nodeId);
+          const circuit = this.circuits[circuitId];
 
-             if (!node) { throw new Error(`Node with ID ${nodeId} not found in matching connections.`); }
-             const connectedNode = this.connectedNodes[nodeId] = new WhiskConnectedNode(connection, node);
-             responsePromises.push(connectedNode.initialize());
-         })
-
-         return responsePromises;
+          circuit.abort();
+          await circuit.getOnTerminated();
      }
 
 }
@@ -106,42 +75,64 @@ export class WhiskCore {
 // usage example
 const connRepo = new WhiskConnectionRepository();
 
-connRepo.registerWhisk(new WhiskConnection('tcp://worker-1:5050', ['industream/random-data-adaoter/1.0.1']));
-connRepo.registerWhisk(new WhiskConnection('tcp://worker-2:5060', ['industream/debug-data-sink/1.0.1']));
+connRepo.registerWhisk(new WhiskConnection('tcp://localhost:5050', ['industream/random-data-adapter/1.0.1']));
+connRepo.registerWhisk(new WhiskConnection('tcp://localhost:5060', ['industream/dump-sink/1.0.0']));
 
 const core = new WhiskCore(connRepo);
+let circuit: WhiskCircuit;
 
-core.build({
-    nodes: [{
-        flowElement: {
-            name: "Random Data Adapter",
-            id: 'industream/random-data-adaoter/1.0.1',
-            icon: 'question_mark',
-            options: { sr: 1 },
-            type: 'source'
-        },
-        id: "node/1",
-        inputs: [],
-        outputs: [{
-            id: "default",
-            displayName: "Default Outlet"}]
-    },
-        {
+const buildCore = async () => {
+    const circuit = await core.build({
+        nodes: [{
             flowElement: {
-                name: "Random Data Sink",
-                id: 'industream/debug-data-sink/1.0.1',
+                name: "Random Data Adapter",
+                id: 'industream/random-data-adapter/1.0.1',
                 icon: 'question_mark',
-                options: { sk: 1 },
-                type: 'sink'
+                options: {
+                    "dataKey": "field1",
+                    "dataIncrement": 100,
+                    "pushIntervalMs": 10,
+                    "debug": {
+                        "modCheck": 1000
+                    }
+                },
+                type: 'source'
             },
-            id: "node/2",
+            id: "node/1",
             inputs: [],
             outputs: [{
                 id: "default",
-                displayName: "Default Outlet"}]
-        }],
-    connections: [{ from: "node/1-default", to: "node/2-default", id:"-"}]
-});
+                displayName: "Default Outlet"
+            }]
+        },
+            {
+                flowElement: {
+                    name: "Random Data Sink",
+                    id: 'industream/dump-sink/1.0.0',
+                    icon: 'question_mark',
+                    options: {
+                        pathOutputPrefix: "/tmp/filePrefix-",
+                        maxFileSize: "50MiB"
+                    },
+                    type: 'sink'
+                },
+                id: "node/2",
+                inputs: [{
+                    id: "default",
+                    displayName: "Default Outlet"
+                }],
+                outputs: []
+            }],
+        connections: [{ from:  "node/1-default", to: "node/2-default", id: "-"}]
+    }, 'my-new-circuit');
+
+    circuit.getOnTerminated().then((result) => {
+        console.log("flow terminated");
+        setTimeout(() => buildCore(), 5000);
+    });
+};
+
+buildCore();
 
 
 

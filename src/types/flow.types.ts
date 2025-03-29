@@ -29,8 +29,17 @@ export const INIT_TIMEOUT_DELAY = parseInt(process.env['WW_INIT_TIMEOUT_DELAY'] 
 * Flow I/O definition
 * */
 export interface OutletConduit {
-    from: string;
-    to: string;
+    from: { nodeId: string; pin: string };
+    to: { nodeId: string; pin: string };
+    id: string;
+}
+
+/**
+ * This maps the default file format (converted to OutletConduit for safety almost immediately
+ */
+export interface OutletConduitFormat {
+    from: string; // nodeid and Pin (- separated)
+    to: string; // nodeid And pin (- separated)
     id: string;
 }
 
@@ -68,6 +77,13 @@ export interface WhiskNodeCircuit {
      connections: OutletConduit[];
 }
 
+/**
+ * Flow high level object (version for file compatiblity import).
+ */
+export interface WhiskNodeCircuitImport {
+    nodes: WhiskNode[];
+    connections: OutletConduitFormat[];
+}
 
 export interface WhiskNodeCircuitInitialization  {
 

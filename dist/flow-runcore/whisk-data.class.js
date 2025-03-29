@@ -59,7 +59,10 @@ class WhiskZMQDataAdapter {
         return __awaiter(this, void 0, void 0, function* () {
             var _a, e_1, _b, _c;
             this.receiver = new zeromq_1.Dealer({ routingId: "whisk-data-adapter", connectTimeout: 10000 });
-            this.sendQueue = queue((msg) => __awaiter(this, void 0, void 0, function* () { return yield this.receiver.send(msg); }), 1);
+            this.sendQueue = queue((msg, done) => __awaiter(this, void 0, void 0, function* () {
+                yield this.receiver.send(msg);
+                done();
+            }), 1);
             yield this.receiver.connect(this.addressableUri);
             try {
                 for (var _d = true, _e = __asyncValues(this.receiver), _f; _f = yield _e.next(), _a = _f.done, !_a; _d = true) {
@@ -89,14 +92,23 @@ class WhiskZMQDataAdapter {
      * Sends a message and returns a promise that will be resolved when a response is received.
      * @param token - Unique identifier for the request.
      * @param msg - The message to send.
+     * @param abortSignal - Promise to abort signal
      * @returns A promise that resolves with the received message or rejects if there's an error.
      */
-    sendAndReceive(token, msg) {
+    sendAndReceive(token, msg, abortSignal) {
         return __awaiter(this, void 0, void 0, function* () {
-            return new Promise((resolve, reject) => {
+            const sendPromise = new Promise((resolve, reject) => {
                 this.pendingRequests[token.toString()] = { resolve, reject }; // Store the resolve and reject functions for the token
-                this.sendQueue.push([token, ...msg]); // Send the message with the token
+                // queue push, can push array of objects, there fore we double the array
+                this.sendQueue.push([[token, ...msg]]); // Send the message with the token
             });
+            if (abortSignal) {
+                // abortSignal can only reject.
+                return Promise.race([abortSignal, sendPromise]);
+            }
+            else {
+                return sendPromise;
+            }
         });
     }
     /**

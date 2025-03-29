@@ -14,17 +14,26 @@ class WhiskConduit {
     constructor(flowConnection, whiskConnectedNodes) {
         this.flowConnection = flowConnection;
         this.whiskConnectedNodes = whiskConnectedNodes;
-        this.terminateToken = null;
+        this.detachToken = null;
     }
     /**
      * Processes connections within the flow by sending messages and logging responses.
      */
     attachConduit() {
-        const fromConnection = this.whiskConnectedNodes[this.flowConnection.from];
-        const toConnection = this.whiskConnectedNodes[this.flowConnection.to];
-        this.terminateToken = fromConnection.onOutputPin(this.flowConnection.from, (msg) => __awaiter(this, void 0, void 0, function* () {
-            yield toConnection.pushToInputPin(this.flowConnection.to, msg);
+        const fromConnection = this.whiskConnectedNodes[this.flowConnection.from.nodeId];
+        const toConnection = this.whiskConnectedNodes[this.flowConnection.to.nodeId];
+        this.detachToken = fromConnection.onOutputPin(this.flowConnection.from.pin, (msg) => __awaiter(this, void 0, void 0, function* () {
+            yield toConnection.pushToInputPin(this.flowConnection.to.pin, msg);
         }));
+    }
+    detachConduit() {
+        if (this.detachToken) {
+            const fromConnection = this.whiskConnectedNodes[this.flowConnection.from.nodeId];
+            if (fromConnection) {
+                fromConnection.detachPin(this.flowConnection.from.pin, this.detachToken);
+                this.detachToken = null;
+            }
+        }
     }
 }
 exports.WhiskConduit = WhiskConduit;
