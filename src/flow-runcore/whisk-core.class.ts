@@ -19,10 +19,11 @@
 
 
 
-import {WhiskConnection, WhiskConnectionRepository} from "./whisk-repository.class.js";
+import { WhiskConnectionRepository} from "./whisk-repository.class.js";
 import {WhiskNodeCircuitImport} from "../types/flow.types";
 import {WhiskCircuit} from "./whisk-circuit.class";
 import {logger} from "../helpers/logger.class";
+import {WhiskConnection} from "./whisk-connection.class";
 
 
 export class WhiskCore {

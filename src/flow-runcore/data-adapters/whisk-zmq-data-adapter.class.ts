@@ -22,7 +22,7 @@ import {QueueObject} from "async";
 var async = require("async");
 const { queue } = async;
 import { Dealer } from "zeromq";
-import { logger } from "../helpers/logger.class.js";
+import { logger } from "../../helpers/logger.class";
 
 /**
  * WhiskerZMQDataAdapter class is responsible for managing ZeroMQ communication

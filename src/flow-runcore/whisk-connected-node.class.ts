@@ -18,7 +18,7 @@
  */
 
 
-import {WhiskConnection, WhiskConnectionStatus} from "./whisk-repository.class";
+
 import {tokenGenerator} from "../helpers/token-generator.class";
 import {
     CAN_SEND_NEXT,
@@ -31,6 +31,7 @@ import {logger} from "../helpers/logger.class";
 import {SERIALZER_MSGPACK, whishSerializer} from "./whisk-serializer.class";
 
 import * as lodash from 'lodash';
+import {WhiskConnection} from "./whisk-connection.class";
 const { pull } = lodash;
 
 // identity token, noderef, pinId, header, data
@@ -63,11 +64,14 @@ export class WhiskConnectedNode {
         // Initialize the node reference with a unique identifier
         this.nodeRef = Buffer.from('noderef-of-' + this.node.id);
 
-        this.abortedByCancelSignal=  new Promise(
+        this.abortedByCancelSignal =  new Promise(
             (resolve, reject) => this.abortCancelSignalRejecter = () => {
                 this.onAbortedByCancelSignal();
-                reject();
+                reject(new Error('AbortedByCancelSignalReject'));
             });
+
+        // prevent crashing if no catcher
+        this.abortedByCancelSignal.catch((err) => { logger.error("AbortedByCancelSignalReject", this.node.id ); } );
 
     }
 
@@ -187,16 +191,7 @@ export class WhiskConnectedNode {
     }
 
 
-    private getMemSafeAbortedByCancelSignal() {
 
-        let localAbort: any;
-        const abortedByCancelSignal = new Promise<void>((res, rej) =>  {
-            localAbort = res;
-            this.abortedByCancelSignal.catch((err) => rej(new Error('AbortedByCancel')));
-        });
-
-        return [localAbort, abortedByCancelSignal];
-    }
 
 
     public detachPin(pinId: string, callBackFn: PinAttachmentCallback) {
@@ -221,12 +216,17 @@ export class WhiskConnectedNode {
                 await this.allConnected;
                 logger.info(`[${this.node.id}] / output pin ${from} opened.`);
 
+                let localAbortResolver : any;
+                this.abortedByCancelSignal.catch(() => localAbortResolver && localAbortResolver(new Error('Aborted by cancel signal')));
+
                 while (this.connected) {
                     const header = whishSerializer.createShortHeader(CAN_SEND_NEXT, SERIALZER_MSGPACK);
                     const pinId = Buffer.from(from);
 
                     // Duplicate cancelSignalPromise (avoid race memory leak)
-                    let [localAbort, abortedByCancelSignal] = this.getMemSafeAbortedByCancelSignal();
+                    const abortedByCancelSignal = new Promise<void>((resolve, reject) => { localAbortResolver = reject })
+                    // disable js error panic.
+                    abortedByCancelSignal.catch((err) => {});
 
                     try {
                         // Notify the whisk connection that we are ready to send data
@@ -251,7 +251,7 @@ export class WhiskConnectedNode {
                         // throw new Error(err?.message || err);
                     } finally {
                         // resolve promise, to close memory leak.
-                        localAbort();
+                        localAbortResolver();
                     }
                 }
 

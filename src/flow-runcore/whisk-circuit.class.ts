@@ -25,8 +25,9 @@ import {logger} from "../helpers/logger.class";
 import {WhiskConnectedNode} from "./whisk-connected-node.class";
 import {WhiskConduit} from "./whisk-conduit.class";
 import {WhiskDataConverter} from "../helpers/converter.class";
-import {WhiskConnection, WhiskConnectionRepository} from "./whisk-repository.class";
+import { WhiskConnectionRepository} from "./whisk-repository.class";
 import {INIT_TIMEOUT_DELAY, WhiskNodeCircuit, WhiskNodeCircuitImport} from "../types/flow.types";
+import {WhiskConnection} from "./whisk-connection.class";
 
 
 export class WhiskCircuit {
