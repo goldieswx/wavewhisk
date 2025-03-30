@@ -19,7 +19,7 @@
 
 
 import {WhiskZMQDataAdapter} from "./data-adapters/whisk-zmq-data-adapter.class";
-import {BehaviorSubject} from "rxjs";
+import {BehaviorSubject, Subscription} from "rxjs";
 import {logger} from "../helpers/logger.class";
 import {clearInterval} from "node:timers";
 import {
@@ -45,64 +45,119 @@ export interface WhiskConnectionOptions {
 
 export type WhiskConnectionStatus = 'healthy' | 'error' | 'initializing';
 /**
- * Manages a connection to a whisk service and its health status.
+ * Manages a connection to a Whisk scheduler.
+ * Handles connection lifecycle, automatic retries, heartbeat monitoring, and status updates.
  */
 export class WhiskConnection {
 
+    /** Timestamp of the last successful heartbeat */
     lastHeartBeat: Date = null;
     dataAdapter  = new WhiskZMQDataAdapter(this.addressableUri);
 
     private status : WhiskConnectionStatus = 'initializing';
     private $_status = new BehaviorSubject<WhiskConnectionStatus>(this.status);
+
+    /**
+     * Observable stream of current connection status
+     * @type {import('rxjs').Observable<WhiskConnectionStatus>}
+     */
     public readonly $status = this.$_status.asObservable();
 
-
+    private sub = new Subscription();
     private errorCount = 0;
     private destroyResolver : any;private timer : any;
+
+    /**
+     * Promise that resolves when the connection is destroyed
+     * @type {Promise<true>}
+     */
     public readonly onDestroy: Promise<true> = new Promise((resolve, reject) => this.destroyResolver = resolve);
 
-    constructor(public readonly addressableUri: string, public registeredClasses: string[] = [], public options: WhiskConnectionOptions) {
+    /**
+     * Creates a new WhiskConnection instance.
+     * Automatically starts initialization and retry logic.
+     *
+     * @param {string} addressableUri - ZMQ address to connect to.
+     * @param {string[]} [registeredClasses=[]] - Registered class types for this connection.
+     * @param {WhiskConnectionOptions} options - Connection configuration.
+     */
+    constructor(public readonly addressableUri: string, public registeredClasses: string[] = [], public options?: WhiskConnectionOptions) {
 
         logger.info(`WhiskConnection created for ${addressableUri}`);
 
-        this.$status.subscribe((status) => {
+        this.sub = this.$status.subscribe((status) => {
+            switch (status) {
+                case 'initializing':
+                    this.handleInitializingState();
+                    break;
 
-            if (status === 'initializing') {
-                logger.info('Initializing...', addressableUri);
-                setTimeout(async () => {
-                    try {
-                        await this.dataAdapter.open();
-                        await this.sendSchedulerInitialize();
-                        this.updateStatus('healthy');
-                    } catch (e: any) {
-                        logger.warn('Couldn\'t initialize connection',e);
-                        this.updateStatus('error');
-                    }
-                });
+                case 'error':
+                    this.handleErrorState();
+                    break;
+
+                case 'healthy':
+                    this.handleHealthyState();
+                    break;
             }
-            if (status === 'error') {
-                if (this.timer) {
-                    clearInterval(this.timer);
-                    this.timer = null;
-                }
-                logger.warn(`Connection failed for ${addressableUri}, retrying in 5s`);
-                setTimeout(async () => {
-                    this.updateStatus('initializing');
-                }, this.getRestartDelay());
-                this.dataAdapter.close();
-            }
-            if (status === 'healthy') {
-                this.errorCount = 0;
-                if (this.timer) {
-                    clearInterval(this.timer);
-                    this.timer = null;
-                }
-                this.timer = setInterval(() => this.sendHeartBeatEvent(), HEARTBEAT_ASKRATE_DELAY_MS);
+        });
+
+
+    }
+
+    /**
+     * Handles initialization logic for the connection.
+     */
+    private async handleInitializingState(): Promise<void> {
+        logger.info('Initializing...', this.addressableUri);
+
+        setTimeout(async () => {
+            try {
+                await this.dataAdapter.open();
+                await this.sendSchedulerInitialize();
+                this.updateStatus('healthy');
+            } catch (e: any) {
+                logger.warn(`Couldn't initialize connection`, e);
+                this.updateStatus('error');
             }
         });
     }
 
+    /**
+     * Handles the error state: closes connection and schedules retry.
+     */
+    private handleErrorState(): void {
+        if (this.timer) {
+            clearInterval(this.timer);
+            this.timer = null;
+        }
 
+        logger.warn(`Connection failed for ${this.addressableUri}, retrying...`);
+
+        setTimeout(() => {
+            this.updateStatus('initializing');
+        }, this.getRestartDelay());
+
+        this.dataAdapter.close();
+    }
+
+    /**
+     * Handles the healthy state: starts heartbeat monitoring.
+     */
+    private handleHealthyState(): void {
+        this.errorCount = 0;
+
+        if (this.timer) {
+            clearInterval(this.timer);
+            this.timer = null;
+        }
+
+        this.timer = setInterval(() => this.sendHeartBeatEvent(), HEARTBEAT_ASKRATE_DELAY_MS);
+    }
+
+    /**
+     * Calculates restart delay using exponential backoff with an upper cap.
+     * @returns {number} The delay in milliseconds before the next retry.
+     */
     private getRestartDelay(): number {
 
         const backoffDelay = this.options?.failStrategy?.restartBackOffInitialDelayMs || 5000;
@@ -116,12 +171,16 @@ export class WhiskConnection {
 
     }
 
+    /**
+     * Returns the current connection status.
+     * @returns {WhiskConnectionStatus}
+     */
     public getStatus(): WhiskConnectionStatus {
         return this.$_status.value;
     }
 
     /**
-     * Destroys the connection and its data adapter.
+     * Destroys the connection and associated timers and resources.
      */
     destroy() {
         if (this.timer) {
@@ -130,9 +189,15 @@ export class WhiskConnection {
         this.destroyResolver();
 
         logger.info(`WhiskConnection destroyed for ${this.addressableUri}`);
+
         this.dataAdapter.destroy();
+        this.sub.unsubscribe();
     }
 
+    /**
+     * Returns the delay since the last successful heartbeat.
+     * @returns {number | null} Milliseconds since last heartbeat or `null` if never received.
+     */
     getLastHeartbeatDelay(): number {
 
         if (this.lastHeartBeat === null) {
@@ -141,6 +206,11 @@ export class WhiskConnection {
         return (new Date().getTime() - (this.lastHeartBeat).getTime());
     }
 
+    /**
+     * Sends a heartbeat message to the connected scheduler.
+     * Updates `lastHeartBeat` on success.
+     * Logs errors on failure.
+     */
     private sendHeartBeat() {
         // [identity, token,  _nodeRef, inputId, header, data ]
         const notUsed = Buffer.alloc(0);
@@ -150,10 +220,14 @@ export class WhiskConnection {
                 tokenGenerator.generateToken(),
                 [notUsed, notUsed, whishSerializer.createShortHeader(HEARTBEAT_EVENT, SERIALZER_MSGPACK)])
             .then(() => this.lastHeartBeat = new Date())
-            .catch(error => logger.error(`WhiskConnection sendHeartBeat`, error));
+            .catch(error => logger.debug(`WhiskConnection sendHeartBeat`, error));
 
     }
 
+    /**
+     * Sends the initial scheduler "restart" handshake to establish the connection.
+     * Updates `lastHeartBeat` on success.
+     */
     private async sendSchedulerInitialize() {
         // [identity, token,  _nodeRef, inputId, header, data ]
         const notUsed = Buffer.alloc(0);
@@ -163,21 +237,27 @@ export class WhiskConnection {
             [notUsed, notUsed, whishSerializer.createShortHeader(SCHEDULER_RESTART, SERIALZER_MSGPACK)]);
 
         this.lastHeartBeat = new Date();
-
-        //  .catch(error => logger.error(`WhiskConnection send SCHEDULER_RESTART`, error));
     }
 
+    /**
+     * Updates internal status and notifies observers via RxJS subject.
+     * @param {WhiskConnectionStatus} status - New status to apply.
+     */
     private updateStatus(status: WhiskConnectionStatus) {
 
         this.status = status;
         this.$_status.next(status);
     }
 
+    /**
+     * Verifies if the heartbeat interval has overflowed,
+     * and if so, transitions to 'error' state.
+     */
     private sendHeartBeatEvent() {
 
         const lastHeartbeatDelay = this.getLastHeartbeatDelay();
         if  ((lastHeartbeatDelay !== null) && (lastHeartbeatDelay >= HEARTBEAT_MAX_DELAY_MS)) {
-            logger.error(`HeartBeat overflow. ${this.addressableUri}`);
+            logger.debug(`HeartBeat overflow. ${this.addressableUri}`);
             this.updateStatus('error');
             return;
         }

@@ -43,7 +43,7 @@ export class WhiskConduit {
               try {
                   await toConnection.pushToInputPin(this.flowConnection.to.pin, msg);
               } catch (e: any) {
-                  logger.error(`Attached Conduit, push to pin ${this.flowConnection.to.pin}, error`, e);
+                  logger.debug(`Attached Conduit, push to pin ${this.flowConnection.to.pin}, error`, e);
               }
         });
 

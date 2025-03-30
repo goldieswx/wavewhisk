@@ -38,22 +38,24 @@ export class WhiskCircuit {
     private onTerminateResolver : any;
     private onTerminated = new Promise<true>(resolve => this.onTerminateResolver = resolve);
 
+    private circuitId: string;
 
     constructor(private connections: WhiskConnectionRepository) {
     }
 
-    async build(_flow: WhiskNodeCircuitImport) {
+    async build(_circuit: WhiskNodeCircuitImport, circuitId: string) {
 
-        const flow = WhiskDataConverter.convertFlowFromImport(_flow);
+        this.circuitId = circuitId;
+        const circuit = WhiskDataConverter.convertFlowFromImport(_circuit);
 
-        const matchingConnections =  this.connections.findMatchingWhiskConnections(flow);
-        logger.info(matchingConnections);
+        const matchingConnections =  this.connections.findMatchingWhiskConnections(circuit);
+        logger.debug(matchingConnections);
 
         /* Node initialization*/
-        const initializeNodes = Promise.all(this.buildFlowInitialize(matchingConnections, flow));
+        const initializeNodes = Promise.all(this.buildFlowInitialize(matchingConnections, circuit));
 
         const timeout = new Promise((resolve, reject) => {
-            setTimeout(() => { reject(new Error('Operation timed out after 15 seconds')); }, INIT_TIMEOUT_DELAY);
+            setTimeout(() => { reject(new Error(`Operation timed out after ${INIT_TIMEOUT_DELAY} seconds`)); }, INIT_TIMEOUT_DELAY);
         });
 
         try {
@@ -61,12 +63,11 @@ export class WhiskCircuit {
             const timedResults = await Promise.race([initializeNodes, timeout]);
             logger.info('All connections have responded:', timedResults);
         } catch (error) {
-            logger.error('Operation timed out or encountered an error:', error);
             throw new Error('Timed out waiting for connections to initialize.');
         }
 
         /* Node conduit connection */
-        flow.connections.forEach(connection => {
+        circuit.connections.forEach(connection => {
             const conduit = new WhiskConduit(connection, this.connectedNodes);
             // push connections asyncronously.
             conduit.attachConduit();
@@ -130,7 +131,7 @@ export class WhiskCircuit {
             const node = flow.nodes.find(node => node.id === nodeId);
 
             if (!node) { throw new Error(`Node with ID ${nodeId} not found in matching connections.`); }
-            const connectedNode = this.connectedNodes[nodeId] = new WhiskConnectedNode(connection, node);
+            const connectedNode = this.connectedNodes[nodeId] = new WhiskConnectedNode(connection, node, this.circuitId);
             responsePromises.push(connectedNode.initialize());
         })
 

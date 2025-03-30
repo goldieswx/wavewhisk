@@ -28,7 +28,7 @@ class WhiskConduit {
                 yield toConnection.pushToInputPin(this.flowConnection.to.pin, msg);
             }
             catch (e) {
-                logger_class_1.logger.error(`Attached Conduit, push to pin ${this.flowConnection.to.pin}, error`, e);
+                logger_class_1.logger.debug(`Attached Conduit, push to pin ${this.flowConnection.to.pin}, error`, e);
             }
         }));
     }

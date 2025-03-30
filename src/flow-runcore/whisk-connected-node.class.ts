@@ -32,6 +32,7 @@ import {SERIALZER_MSGPACK, whishSerializer} from "./whisk-serializer.class";
 
 import * as lodash from 'lodash';
 import {WhiskConnection} from "./whisk-connection.class";
+import {createHash} from "node:crypto";
 const { pull } = lodash;
 
 // identity token, noderef, pinId, header, data
@@ -59,10 +60,12 @@ export class WhiskConnectedNode {
 
     constructor(
         private whiskConnection: WhiskConnection,
-        private node: WhiskNode
+        private node: WhiskNode,
+        private circuitId: string
     ) {
+
         // Initialize the node reference with a unique identifier
-        this.nodeRef = Buffer.from('noderef-of-' + this.node.id);
+        this.nodeRef = Buffer.from(this.getNodeRef());
 
         this.abortedByCancelSignal =  new Promise(
             (resolve, reject) => this.abortCancelSignalRejecter = () => {
@@ -83,6 +86,9 @@ export class WhiskConnectedNode {
         this.connected = false;
     }
 
+    private getNodeRef() {
+        return createHash('sha256').update(`${this.circuitId}/${this.node.id}`).digest('hex').slice(0, 8);
+    }
 
     /**
      * Marks all connections as established.
@@ -108,7 +114,7 @@ export class WhiskConnectedNode {
         const initStruct: WhiskNodeCircuitInitialization = {
             options: this.node.flowElement.options,
             flowElement: { repositoryElementId: this.node.flowElement.id },
-            extraInfo: { jobId: 'no-job-defined-yet', nodeId: this.node.id }
+            extraInfo: { jobId: this.circuitId, nodeId: this.node.id }
         };
 
         if (this.whiskConnection.getStatus() !== 'healthy') {
@@ -140,7 +146,7 @@ export class WhiskConnectedNode {
 
         } catch (error) {
             this.abort();
-            logger.error(`[${this.node.id}] Error with connection to ${this.whiskConnection.addressableUri}:`, error);
+            logger.debug(`[${this.node.id}] Error with connection to ${this.whiskConnection.addressableUri}:`, error);
         }
     }
 
@@ -246,7 +252,7 @@ export class WhiskConnectedNode {
                         await Promise.all(inputAcks);
 
                     } catch (err : any) {
-                        logger.error(`[${this.node.id}] Error with output pin routing ${from} @ ${this.whiskConnection.addressableUri}:`, err);
+                        logger.debug(`[${this.node.id}] Error with output pin routing ${from} @ ${this.whiskConnection.addressableUri}:`, err);
                         this.abort();
                         // throw new Error(err?.message || err);
                     } finally {

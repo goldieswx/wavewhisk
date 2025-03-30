@@ -45,6 +45,10 @@ class WhiskLogger {
     warn(message: any, meta = {}) {
         this.logger.warn(message, meta);
     }
+
+    debug(message: any, meta = {}) {
+        this.logger.debug(message, meta);
+    }
 }
 
 

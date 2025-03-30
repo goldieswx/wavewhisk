@@ -89,7 +89,7 @@ export class WhiskConnectionRepository {
 
         const allWhisks = this.$_whiskConnections.value || [];
         if (!allWhisks.find(whiskConnection => whiskConnection.addressableUri === connection.addressableUri)) {
-            logger.info(`WhiskerConnection registered for ${connection.addressableUri}`);
+            logger.info(`WhiskConnection registered for ${connection.addressableUri}`);
             allWhisks.push(connection);
             this.$_whiskConnections.next(allWhisks);
         }

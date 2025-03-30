@@ -51,9 +51,9 @@ export class WhiskCore {
              })
 
              try {
-                 await circuit.build(importCircuit);
+                 await circuit.build(importCircuit, circuitId);
              } catch (error: any) {
-                 logger.error(`Failed to build circuit ${error?.message || error}`);
+                 logger.debug(`Failed to build circuit ${error?.message || error}`);
                  delete this.circuits[circuitId];
                  throw new Error(error);
              }
@@ -78,8 +78,8 @@ export class WhiskCore {
 // usage example
 const connRepo = new WhiskConnectionRepository();
 
-connRepo.registerWhisk(new WhiskConnection('tcp://localhost:5050', ['industream/random-data-adapter/1.0.1'], null));
-connRepo.registerWhisk(new WhiskConnection('tcp://localhost:5060', ['industream/dump-sink/1.0.0'], null));
+connRepo.registerWhisk(new WhiskConnection('tcp://localhost:5050', ['industream/random-data-adapter/1.0.1']));
+connRepo.registerWhisk(new WhiskConnection('tcp://localhost:5060', ['industream/dump-sink/1.0.0']));
 
 const core = new WhiskCore(connRepo);
 let circuit: WhiskCircuit;
@@ -94,7 +94,7 @@ const buildCore = async () => {
                    icon: 'question_mark',
                    options: {
                        "dataKey": "field1",
-                       "dataIncrement": 100,
+                       "dataIncrement": 1,
                        "pushIntervalMs": 2500,
                        "debug": {
                            "modCheck": 1000

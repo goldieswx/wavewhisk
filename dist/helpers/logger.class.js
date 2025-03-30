@@ -44,5 +44,8 @@ class WhiskLogger {
     warn(message, meta = {}) {
         this.logger.warn(message, meta);
     }
+    debug(message, meta = {}) {
+        this.logger.debug(message, meta);
+    }
 }
 exports.logger = new WhiskLogger();

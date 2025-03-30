@@ -31,6 +31,7 @@ exports.WhiskCore = void 0;
 const whisk_repository_class_js_1 = require("./whisk-repository.class.js");
 const whisk_circuit_class_1 = require("./whisk-circuit.class");
 const logger_class_1 = require("../helpers/logger.class");
+const whisk_connection_class_1 = require("./whisk-connection.class");
 class WhiskCore {
     constructor(connections) {
         this.connections = connections;
@@ -50,10 +51,10 @@ class WhiskCore {
                 delete this.circuits[circuitId];
             });
             try {
-                yield circuit.build(importCircuit);
+                yield circuit.build(importCircuit, circuitId);
             }
             catch (error) {
-                logger_class_1.logger.error(`Failed to build circuit ${(error === null || error === void 0 ? void 0 : error.message) || error}`);
+                logger_class_1.logger.debug(`Failed to build circuit ${(error === null || error === void 0 ? void 0 : error.message) || error}`);
                 delete this.circuits[circuitId];
                 throw new Error(error);
             }
@@ -74,8 +75,8 @@ class WhiskCore {
 exports.WhiskCore = WhiskCore;
 // usage example
 const connRepo = new whisk_repository_class_js_1.WhiskConnectionRepository();
-connRepo.registerWhisk(new whisk_repository_class_js_1.WhiskConnection('tcp://localhost:5050', ['industream/random-data-adapter/1.0.1'], null));
-connRepo.registerWhisk(new whisk_repository_class_js_1.WhiskConnection('tcp://localhost:5060', ['industream/dump-sink/1.0.0'], null));
+connRepo.registerWhisk(new whisk_connection_class_1.WhiskConnection('tcp://localhost:5050', ['industream/random-data-adapter/1.0.1']));
+connRepo.registerWhisk(new whisk_connection_class_1.WhiskConnection('tcp://localhost:5060', ['industream/dump-sink/1.0.0']));
 const core = new WhiskCore(connRepo);
 let circuit;
 const buildCore = () => __awaiter(void 0, void 0, void 0, function* () {
@@ -88,7 +89,7 @@ const buildCore = () => __awaiter(void 0, void 0, void 0, function* () {
                         icon: 'question_mark',
                         options: {
                             "dataKey": "field1",
-                            "dataIncrement": 100,
+                            "dataIncrement": 1,
                             "pushIntervalMs": 2500,
                             "debug": {
                                 "modCheck": 1000

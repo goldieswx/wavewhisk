@@ -25,7 +25,7 @@ import { Dealer } from "zeromq";
 import { logger } from "../../helpers/logger.class";
 
 /**
- * WhiskerZMQDataAdapter class is responsible for managing ZeroMQ communication
+ * WhiskZMQDataAdapter class is responsible for managing ZeroMQ communication
  * by handling requests and responses through tokens. It manages pending requests
  * in a dictionary and provides methods to send messages and handle replies.
  */
