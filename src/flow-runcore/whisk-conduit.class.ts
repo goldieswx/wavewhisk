@@ -20,6 +20,7 @@
 import { OutletConduit} from "../types/flow.types";
 import { PinAttachmentCallback, WhiskConnectedNode} from "./whisk-connected-node.class";
 import {from} from "rxjs";
+import {logger} from "../helpers/logger.class";
 
 
 export class WhiskConduit {
@@ -33,14 +34,19 @@ export class WhiskConduit {
     /**
      * Processes connections within the flow by sending messages and logging responses.
      */
-    public attachConduit() {
+    public  attachConduit() {
 
         const fromConnection = this.whiskConnectedNodes[this.flowConnection.from.nodeId];
         const toConnection = this.whiskConnectedNodes[this.flowConnection.to.nodeId];
 
         this.detachToken = fromConnection.onOutputPin(this.flowConnection.from.pin, async (msg: Buffer[]) => {
-            await toConnection.pushToInputPin(this.flowConnection.to.pin, msg);
+              try {
+                  await toConnection.pushToInputPin(this.flowConnection.to.pin, msg);
+              } catch (e: any) {
+                  logger.error(`Attached Conduit, push to pin ${this.flowConnection.to.pin}, error`, e);
+              }
         });
+
 
     }
 

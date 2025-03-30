@@ -54,6 +54,8 @@ class WhiskCore {
             }
             catch (error) {
                 logger_class_1.logger.error(`Failed to build circuit ${(error === null || error === void 0 ? void 0 : error.message) || error}`);
+                delete this.circuits[circuitId];
+                throw new Error(error);
             }
             return circuit;
         });
@@ -72,57 +74,63 @@ class WhiskCore {
 exports.WhiskCore = WhiskCore;
 // usage example
 const connRepo = new whisk_repository_class_js_1.WhiskConnectionRepository();
-connRepo.registerWhisk(new whisk_repository_class_js_1.WhiskConnection('tcp://localhost:5050', ['industream/random-data-adapter/1.0.1']));
-connRepo.registerWhisk(new whisk_repository_class_js_1.WhiskConnection('tcp://localhost:5060', ['industream/dump-sink/1.0.0']));
+connRepo.registerWhisk(new whisk_repository_class_js_1.WhiskConnection('tcp://localhost:5050', ['industream/random-data-adapter/1.0.1'], null));
+connRepo.registerWhisk(new whisk_repository_class_js_1.WhiskConnection('tcp://localhost:5060', ['industream/dump-sink/1.0.0'], null));
 const core = new WhiskCore(connRepo);
 let circuit;
 const buildCore = () => __awaiter(void 0, void 0, void 0, function* () {
-    const circuit = yield core.build({
-        nodes: [{
-                flowElement: {
-                    name: "Random Data Adapter",
-                    id: 'industream/random-data-adapter/1.0.1',
-                    icon: 'question_mark',
-                    options: {
-                        "dataKey": "field1",
-                        "dataIncrement": 100,
-                        "pushIntervalMs": 2500,
-                        "debug": {
-                            "modCheck": 1000
-                        }
+    try {
+        const circuit = yield core.build({
+            nodes: [{
+                    flowElement: {
+                        name: "Random Data Adapter",
+                        id: 'industream/random-data-adapter/1.0.1',
+                        icon: 'question_mark',
+                        options: {
+                            "dataKey": "field1",
+                            "dataIncrement": 100,
+                            "pushIntervalMs": 2500,
+                            "debug": {
+                                "modCheck": 1000
+                            }
+                        },
+                        type: 'source'
                     },
-                    type: 'source'
+                    id: "node/1",
+                    inputs: [],
+                    outputs: [{
+                            id: "default",
+                            displayName: "Default Outlet"
+                        }]
                 },
-                id: "node/1",
-                inputs: [],
-                outputs: [{
-                        id: "default",
-                        displayName: "Default Outlet"
-                    }]
-            },
-            {
-                flowElement: {
-                    name: "Random Data Sink",
-                    id: 'industream/dump-sink/1.0.0',
-                    icon: 'question_mark',
-                    options: {
-                        pathOutputPrefix: "/tmp/filePrefix-",
-                        maxFileSize: "50MiB"
+                {
+                    flowElement: {
+                        name: "Random Data Sink",
+                        id: 'industream/dump-sink/1.0.0',
+                        icon: 'question_mark',
+                        options: {
+                            pathOutputPrefix: "/tmp/filePrefix-",
+                            maxFileSize: "50MiB"
+                        },
+                        type: 'sink'
                     },
-                    type: 'sink'
-                },
-                id: "node/2",
-                inputs: [{
-                        id: "default",
-                        displayName: "Default Outlet"
-                    }],
-                outputs: []
-            }],
-        connections: [{ from: "node/1-default", to: "node/2-default", id: "-" }]
-    }, 'my-new-circuit');
-    circuit.getOnTerminated().then((result) => {
-        console.log("flow terminated");
+                    id: "node/2",
+                    inputs: [{
+                            id: "default",
+                            displayName: "Default Outlet"
+                        }],
+                    outputs: []
+                }],
+            connections: [{ from: "node/1-default", to: "node/2-default", id: "-" }]
+        }, 'my-new-circuit');
+        circuit.getOnTerminated().then((result) => {
+            console.log("flow terminated");
+            setTimeout(() => buildCore(), 5000);
+        });
+    }
+    catch (error) {
+        console.log('FAIL TO build circuit with error: ', error);
         setTimeout(() => buildCore(), 5000);
-    });
+    }
 });
-buildCore();
+setTimeout(() => buildCore(), 5000);

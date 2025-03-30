@@ -53,6 +53,8 @@ export class WhiskCore {
                  await circuit.build(importCircuit);
              } catch (error: any) {
                  logger.error(`Failed to build circuit ${error?.message || error}`);
+                 delete this.circuits[circuitId];
+                 throw new Error(error);
              }
 
              return circuit;
@@ -75,64 +77,72 @@ export class WhiskCore {
 // usage example
 const connRepo = new WhiskConnectionRepository();
 
-connRepo.registerWhisk(new WhiskConnection('tcp://localhost:5050', ['industream/random-data-adapter/1.0.1']));
-connRepo.registerWhisk(new WhiskConnection('tcp://localhost:5060', ['industream/dump-sink/1.0.0']));
+connRepo.registerWhisk(new WhiskConnection('tcp://localhost:5050', ['industream/random-data-adapter/1.0.1'], null));
+connRepo.registerWhisk(new WhiskConnection('tcp://localhost:5060', ['industream/dump-sink/1.0.0'], null));
 
 const core = new WhiskCore(connRepo);
 let circuit: WhiskCircuit;
 
 const buildCore = async () => {
-    const circuit = await core.build({
-        nodes: [{
-            flowElement: {
-                name: "Random Data Adapter",
-                id: 'industream/random-data-adapter/1.0.1',
-                icon: 'question_mark',
-                options: {
-                    "dataKey": "field1",
-                    "dataIncrement": 100,
-                    "pushIntervalMs": 2500,
-                    "debug": {
-                        "modCheck": 1000
-                    }
-                },
-                type: 'source'
-            },
-            id: "node/1",
-            inputs: [],
-            outputs: [{
-                id: "default",
-                displayName: "Default Outlet"
-            }]
-        },
-            {
-                flowElement: {
-                    name: "Random Data Sink",
-                    id: 'industream/dump-sink/1.0.0',
-                    icon: 'question_mark',
-                    options: {
-                        pathOutputPrefix: "/tmp/filePrefix-",
-                        maxFileSize: "50MiB"
-                    },
-                    type: 'sink'
-                },
-                id: "node/2",
-                inputs: [{
-                    id: "default",
-                    displayName: "Default Outlet"
-                }],
-                outputs: []
-            }],
-        connections: [{ from:  "node/1-default", to: "node/2-default", id: "-"}]
-    }, 'my-new-circuit');
+   try {
+       const circuit = await core.build({
+           nodes: [{
+               flowElement: {
+                   name: "Random Data Adapter",
+                   id: 'industream/random-data-adapter/1.0.1',
+                   icon: 'question_mark',
+                   options: {
+                       "dataKey": "field1",
+                       "dataIncrement": 100,
+                       "pushIntervalMs": 2500,
+                       "debug": {
+                           "modCheck": 1000
+                       }
+                   },
+                   type: 'source'
+               },
+               id: "node/1",
+               inputs: [],
+               outputs: [{
+                   id: "default",
+                   displayName: "Default Outlet"
+               }]
+           },
+               {
+                   flowElement: {
+                       name: "Random Data Sink",
+                       id: 'industream/dump-sink/1.0.0',
+                       icon: 'question_mark',
+                       options: {
+                           pathOutputPrefix: "/tmp/filePrefix-",
+                           maxFileSize: "50MiB"
+                       },
+                       type: 'sink'
+                   },
+                   id: "node/2",
+                   inputs: [{
+                       id: "default",
+                       displayName: "Default Outlet"
+                   }],
+                   outputs: []
+               }],
+           connections: [{from: "node/1-default", to: "node/2-default", id: "-"}]
+       }, 'my-new-circuit');
 
-    circuit.getOnTerminated().then((result) => {
-        console.log("flow terminated");
-        setTimeout(() => buildCore(), 5000);
-    });
+       circuit.getOnTerminated().then((result) => {
+           console.log("flow terminated");
+           setTimeout(() => buildCore(), 5000);
+       });
+
+   } catch (error: any) {
+       console.log('FAIL TO build circuit with error: ', error);
+       setTimeout(() => buildCore(), 5000);
+   }
+
 };
 
-buildCore();
+setTimeout(() => buildCore(), 5000);
+
 
 
 

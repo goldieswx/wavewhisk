@@ -31,6 +31,8 @@ import { logger } from "../helpers/logger.class.js";
  */
 export class WhiskZMQDataAdapter {
 
+    private connected = false;
+
     private receiver: Dealer; // ZeroMQ Dealer socket for receiving messages
     private pendingRequests: { [token: string]: { resolve: (msg: Buffer[]) => void, reject: (err: Error) => void } }; // Dictionary to track pending requests with their tokens
 
@@ -46,14 +48,22 @@ export class WhiskZMQDataAdapter {
      * resolving or rejecting promises based on the received tokens.
      */
     private async mainLoop() {
-        this.receiver = new Dealer({routingId: "whisk-data-adapter", connectTimeout: 10000});
+
+
+        if (this.sendQueue) {
+            this.sendQueue.kill();
+        }
 
         this.sendQueue = queue(async (msg: Buffer[], done: any) => {
             await this.receiver.send(msg);
             done();
         }, 1);
 
-        await this.receiver.connect(this.addressableUri);
+
+        this.receiver = new Dealer({routingId: "whisk-data-adapter", connectTimeout: 10000});
+        this.receiver.connect(this.addressableUri);
+
+        this.connected = true;
 
         for await (const msg of this.receiver) {
             const token = msg[0].toString(); // Convert the token to string
@@ -63,7 +73,12 @@ export class WhiskZMQDataAdapter {
             } else {
                 logger.warn(`Received message with unknown token: ${token}`); // Log a warning for unknown tokens
             }
+            if (!this.connected) {
+
+                break;
+            }
         }
+
     }
 
     /**
@@ -114,6 +129,19 @@ export class WhiskZMQDataAdapter {
             delete this.pendingRequests[token]; // Remove the request from pending list
         } else {
             console.warn(`No pending request with token ${token}`); // Log a warning if no such token exists
+        }
+    }
+
+    public close() {
+        if (this.receiver) {
+            this.connected = false;
+            this.receiver.close();
+        }
+    }
+
+    public open() {
+        if (this.receiver && !this.connected) {
+            this.mainLoop().then(() => {});
         }
     }
 }

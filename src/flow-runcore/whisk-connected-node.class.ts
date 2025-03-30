@@ -18,7 +18,7 @@
  */
 
 
-import {WhiskConnection} from "./whisk-repository.class";
+import {WhiskConnection, WhiskConnectionStatus} from "./whisk-repository.class";
 import {tokenGenerator} from "../helpers/token-generator.class";
 import {
     CAN_SEND_NEXT,
@@ -79,6 +79,7 @@ export class WhiskConnectedNode {
         this.connected = false;
     }
 
+
     /**
      * Marks all connections as established.
      */
@@ -99,12 +100,25 @@ export class WhiskConnectedNode {
      * Initializes the node by sending a configuration structure to the whisk connection.
      */
     public async initialize() {
+
+        const initStruct: WhiskNodeCircuitInitialization = {
+            options: this.node.flowElement.options,
+            flowElement: { repositoryElementId: this.node.flowElement.id },
+            extraInfo: { jobId: 'no-job-defined-yet', nodeId: this.node.id }
+        };
+
+        if (this.whiskConnection.getStatus() !== 'healthy') {
+            throw new Error(`Whisk connection ${this.whiskConnection.addressableUri} is not  healthy`);
+        }
+
         try {
-            const initStruct: WhiskNodeCircuitInitialization = {
-                options: this.node.flowElement.options,
-                flowElement: { repositoryElementId: this.node.flowElement.id },
-                extraInfo: { jobId: 'no-job-defined-yet', nodeId: this.node.id }
-            };
+            const sub = this.whiskConnection.$status.subscribe((status) => {
+                if (status !== 'healthy') {
+                    logger.info(`Connected node ${ this.node.id } / Whisk connection unhealthy, aborting.`);
+                    this.abort();
+                    sub.unsubscribe();
+                }
+            })
 
             // Create a header and serialize the initialization structure
             const header = whishSerializer.createShortHeader(INIT_FLOW_ELEMENT, SERIALZER_MSGPACK);
@@ -121,6 +135,7 @@ export class WhiskConnectedNode {
             return response;
 
         } catch (error) {
+            this.abort();
             logger.error(`[${this.node.id}] Error with connection to ${this.whiskConnection.addressableUri}:`, error);
         }
     }
@@ -176,8 +191,8 @@ export class WhiskConnectedNode {
 
         let localAbort: any;
         const abortedByCancelSignal = new Promise<void>((res, rej) =>  {
-            localAbort = rej;
-            this.abortedByCancelSignal.catch((err) => rej());
+            localAbort = res;
+            this.abortedByCancelSignal.catch((err) => rej(new Error('AbortedByCancel')));
         });
 
         return [localAbort, abortedByCancelSignal];
@@ -253,6 +268,7 @@ export class WhiskConnectedNode {
     public async pushToInputPin(to: string, msg: Buffer[]) {
         const header = whishSerializer.createShortHeader(CURRENT_EVENT, SERIALZER_MSGPACK);
         const pinId = Buffer.from(to);
+
 
         // Assuming msg[2] contains the actual data
         const response = await this.whiskConnection.dataAdapter.sendAndReceive(

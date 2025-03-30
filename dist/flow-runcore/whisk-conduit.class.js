@@ -10,6 +10,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.WhiskConduit = void 0;
+const logger_class_1 = require("../helpers/logger.class");
 class WhiskConduit {
     constructor(flowConnection, whiskConnectedNodes) {
         this.flowConnection = flowConnection;
@@ -23,7 +24,12 @@ class WhiskConduit {
         const fromConnection = this.whiskConnectedNodes[this.flowConnection.from.nodeId];
         const toConnection = this.whiskConnectedNodes[this.flowConnection.to.nodeId];
         this.detachToken = fromConnection.onOutputPin(this.flowConnection.from.pin, (msg) => __awaiter(this, void 0, void 0, function* () {
-            yield toConnection.pushToInputPin(this.flowConnection.to.pin, msg);
+            try {
+                yield toConnection.pushToInputPin(this.flowConnection.to.pin, msg);
+            }
+            catch (e) {
+                logger_class_1.logger.error(`Attached Conduit, push to pin ${this.flowConnection.to.pin}, error`, e);
+            }
         }));
     }
     detachConduit() {

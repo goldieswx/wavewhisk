@@ -23,13 +23,28 @@ import {logger} from "../helpers/logger.class.js";
 import {
     HEARTBEAT_ASKRATE_DELAY_MS,
     HEARTBEAT_EVENT,
-    HEARTBEAT_MAX_DELAY_MS,
+    HEARTBEAT_MAX_DELAY_MS, SCHEDULER_RESTART,
     WhiskNodeCircuit
 } from "../types/flow.types.js";
 import {tokenGenerator} from "../helpers/token-generator.class";
 import {SERIALZER_MSGPACK, whishSerializer} from "./whisk-serializer.class";
+import {clearInterval} from "node:timers";
+import lodash from "lodash";
+const { pull } = lodash;
 
 
+export interface WhiskConnectionOptions {
+
+    failStrategy: {
+        type: 'delete' | 'restart';
+        restartBackOffInitialDelayMs ?: number;
+        maxRestarts : 5;
+    }
+
+}
+
+
+export type WhiskConnectionStatus = 'healthy' | 'error' | 'initializing';
 /**
  * Manages a connection to a whisk service and its health status.
  */
@@ -38,16 +53,68 @@ export class WhiskConnection {
     lastHeartBeat: Date = null;
     dataAdapter  = new WhiskZMQDataAdapter(this.addressableUri);
 
-    constructor(public readonly addressableUri: string, public registeredClasses: string[] = []) {
+    private status : WhiskConnectionStatus = 'initializing';
+    private $_status = new BehaviorSubject<WhiskConnectionStatus>(this.status);
+    public readonly $status = this.$_status.asObservable();
 
-          logger.info(`WhiskerConnection created for ${addressableUri}`);
+    private destroyResolver : any;private timer : any;
+    public readonly onDestroy: Promise<true> = new Promise((resolve, reject) => this.destroyResolver = resolve);
 
+    constructor(public readonly addressableUri: string, public registeredClasses: string[] = [], public options: WhiskConnectionOptions) {
+
+           logger.info(`WhiskConnection created for ${addressableUri}`);
+
+           this.$status.subscribe((status) => {
+
+               if (status === 'initializing') {
+                      logger.info('Initializing...', addressableUri);
+                      setTimeout(async () => {
+                          try {
+                              await this.dataAdapter.open();
+                              await this.sendSchedulerInitialize();
+                              this.updateStatus('healthy');
+                          } catch (e: any) {
+                              logger.warn('Couldn\'t initialize connection',e);
+                              this.updateStatus('error');
+                          }
+                      });
+               }
+               if (status === 'error') {
+                       if (this.timer) {
+                           clearInterval(this.timer);
+                           this.timer = null;
+                       }
+                       logger.warn(`Connection failed for ${addressableUri}, retrying in 5s`);
+                       setTimeout(async () => {
+                          this.updateStatus('initializing');
+                       }, 5000);
+                       this.dataAdapter.close();
+               }
+               if (status === 'healthy') {
+                   if (this.timer) {
+                       clearInterval(this.timer);
+                       this.timer = null;
+                   }
+                   this.timer = setInterval(() => this.sendHeartBeatEvent(), HEARTBEAT_ASKRATE_DELAY_MS);
+               }
+           });
     }
+
+
+    public getStatus(): WhiskConnectionStatus {
+        return this.$_status.value;
+    }
+
     /**
      * Destroys the connection and its data adapter.
      */
     destroy() {
-          logger.info(`WhiskerConnection destroyed for ${this.addressableUri}`);
+          if (this.timer) {
+              clearInterval(this.timer);
+          }
+          this.destroyResolver();
+
+          logger.info(`WhiskConnection destroyed for ${this.addressableUri}`);
           this.dataAdapter.destroy();
     }
 
@@ -59,16 +126,50 @@ export class WhiskConnection {
         return (new Date().getTime() - (this.lastHeartBeat).getTime());
     }
 
-    sendHeartBeat() {
+    private sendHeartBeat() {
         // [identity, token,  _nodeRef, inputId, header, data ]
         const notUsed = Buffer.alloc(0);
+
         this.dataAdapter
             .sendAndReceive(
                 tokenGenerator.generateToken(),
-                [notUsed, notUsed, whishSerializer.createShortHeader(HEARTBEAT_EVENT, SERIALZER_MSGPACK)]).then(() => this.lastHeartBeat = new Date()
-            );
+                [notUsed, notUsed, whishSerializer.createShortHeader(HEARTBEAT_EVENT, SERIALZER_MSGPACK)])
+             .then(() => this.lastHeartBeat = new Date())
+             .catch(error => logger.error(`WhiskConnection sendHeartBeat`, error));
+
+    }
+
+    private async sendSchedulerInitialize() {
+        // [identity, token,  _nodeRef, inputId, header, data ]
+        const notUsed = Buffer.alloc(0);
+
+        await this.dataAdapter.sendAndReceive(
+                tokenGenerator.generateToken(),
+                [notUsed, notUsed, whishSerializer.createShortHeader(SCHEDULER_RESTART, SERIALZER_MSGPACK)]);
+
+        this.lastHeartBeat = new Date();
+
+           //  .catch(error => logger.error(`WhiskConnection send SCHEDULER_RESTART`, error));
+    }
+
+    private updateStatus(status: WhiskConnectionStatus) {
+         this.status = status;
+         this.$_status.next(status);
+    }
+
+    private sendHeartBeatEvent() {
+
+        const lastHeartbeatDelay = this.getLastHeartbeatDelay();
+        if  ((lastHeartbeatDelay !== null) && (lastHeartbeatDelay >= HEARTBEAT_MAX_DELAY_MS)) {
+            logger.error(`HeartBeat overflow. ${this.addressableUri}`);
+            this.updateStatus('error');
+            return;
+        }
+        this.sendHeartBeat();
+
     }
 }
+
 
 
 /**
@@ -77,54 +178,36 @@ export class WhiskConnection {
 export class WhiskConnectionRepository {
 
 
-    private $_whiskerConnections = new BehaviorSubject<WhiskConnection[]>([]);
-    public readonly $whiskerConnections = this.$_whiskerConnections.asObservable();
+    private $_whiskConnections = new BehaviorSubject<WhiskConnection[]>([]);
+    public readonly $whiskConnections = this.$_whiskConnections.asObservable();
 
-    private $_whiskerConnection = new Subject<WhiskConnection>();
-    public readonly $whiskerConnection = this.$_whiskerConnection.asObservable();
 
+
+    private timer : any;
     private subs = new Subscription();
 
     constructor() {
 
-        this.subs = this.$_whiskerConnection.subscribe(connection => {
-
-            const allWhisks = this.$_whiskerConnections.value || [];
-            if (!allWhisks.find(whickConnection => whickConnection.addressableUri === connection.addressableUri)) {
-                logger.info(`WhiskerConnection registered for ${connection.addressableUri}`);
-                allWhisks.push(connection);
-                this.$_whiskerConnections.next(allWhisks);
-            }
-
-        });
-
-        // TODO: clear thuie interval
-        setInterval(() => this.sendHeartBeatEvent(), HEARTBEAT_ASKRATE_DELAY_MS);
     }
 
-    private sendHeartBeatEvent() {
+    public deleteConnection(connection: WhiskConnection) {
 
-        const allConnections = this.$_whiskerConnections.value;
+            connection.destroy();
 
-
-        allConnections.forEach((connection: WhiskConnection) => {
-
-            const lastHeartbeatDelay = connection.getLastHeartbeatDelay();
-            if  ((lastHeartbeatDelay !== null) && (lastHeartbeatDelay >= HEARTBEAT_MAX_DELAY_MS)) {
-                logger.error(`HeartBeat overflow. ${connection.addressableUri}`);
+            const allWhisks = this.$_whiskConnections.value;
+            if (allWhisks) {
+                pull(allWhisks,connection);
             }
-            connection.sendHeartBeat();
-        })
-
+            this.$_whiskConnections.next(allWhisks);
     }
-
+    
     /**
      * Finds matching Whisk connections based on a node circuit structure.
      * @param nodeCircuit
      */
     public findMatchingWhiskConnections(nodeCircuit: WhiskNodeCircuit): {[nodeId: string]: WhiskConnection} {
 
-        const allWhisks = this.$_whiskerConnections.value;
+        const allWhisks = this.$_whiskConnections.value;
         if (!allWhisks) throw new Error("No whisk connections found");
 
         // Find matching connections based on node names
@@ -146,11 +229,19 @@ export class WhiskConnectionRepository {
     }
 
     public registerWhisk(connection: WhiskConnection) {
-            this.$_whiskerConnection.next(connection);
+
+        const allWhisks = this.$_whiskConnections.value || [];
+        if (!allWhisks.find(whiskConnection => whiskConnection.addressableUri === connection.addressableUri)) {
+            logger.info(`WhiskerConnection registered for ${connection.addressableUri}`);
+            allWhisks.push(connection);
+            this.$_whiskConnections.next(allWhisks);
+        }
+
     }
 
     public onDestroy() {
         logger.info(`WhiskRepository destroyed`);
+        this.timer && clearInterval(this.timer);
         this.subs.unsubscribe();
     }
 
